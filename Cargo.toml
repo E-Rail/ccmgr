@@ -1,6 +1,6 @@
 [package]
 name = "ccmgr"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 description = "A very simple TUI for managing Claude Code sessions"
 license = "MIT"

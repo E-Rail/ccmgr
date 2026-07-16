@@ -1,10 +1,16 @@
 {
   "name": "ccmgr",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "A very simple TUI for managing Claude Code sessions",
   "license": "MIT",
-  "repository": "github:E-Rail/ccmgr",
-  "os": ["darwin", "linux"],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/E-Rail/ccmgr.git"
+  },
+  "os": [
+    "darwin",
+    "linux"
+  ],
   "bin": {
     "ccmgr": "bin/ccmgr.js"
   },

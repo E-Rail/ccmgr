@@ -36,30 +36,37 @@ fn draw_list(f: &mut Frame, app: &App, area: Rect) {
     let items: Vec<ListItem> = app
         .filtered
         .iter()
-        .map(|&i| {
+        .enumerate()
+        .map(|(row, &i)| {
             let s = &app.sessions[i];
-            let mut spans = vec![
-                Span::raw(s.title.clone()),
-                Span::styled(
-                    format!("  ({})", time_fmt::relative(s.mtime)),
-                    Style::default().fg(Color::DarkGray),
-                ),
-            ];
+            let selected = row == app.selected;
+
+            let title_style = if selected {
+                Style::default()
+                    .fg(Color::Blue)
+                    .add_modifier(Modifier::BOLD)
+            } else {
+                Style::default()
+            };
+
+            let mut details = time_fmt::relative(s.mtime);
             if app.scope == Scope::AllProjects {
                 if let Some(cwd) = &s.cwd {
-                    spans.push(Span::styled(
-                        format!("  [{cwd}]"),
-                        Style::default().fg(Color::DarkGray),
-                    ));
+                    details.push_str("  ·  ");
+                    details.push_str(cwd);
                 }
             }
-            ListItem::new(Line::from(spans))
+
+            ListItem::new(vec![
+                Line::from(Span::styled(s.title.clone(), title_style)),
+                Line::from(Span::styled(details, Style::default().fg(Color::DarkGray))),
+            ])
         })
         .collect();
 
     let list = List::new(items)
         .block(Block::default().borders(Borders::ALL).title(" Sessions "))
-        .highlight_style(Style::default().add_modifier(Modifier::REVERSED));
+        .highlight_symbol("❯ ");
 
     let mut state = ListState::default();
     if !app.filtered.is_empty() {
