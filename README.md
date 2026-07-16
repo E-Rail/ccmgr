@@ -38,6 +38,7 @@ By default it lists sessions belonging to the current directory's project.
 ```sh
 ccmgr -a, --all     Start showing sessions from all projects, not just the current one
 ccmgr -h, --help    Print usage and keybindings
+ccmgr update        Update ccmgr to the latest release
 ccmgr uninstall     Remove the installed ccmgr binary
 ```
 
