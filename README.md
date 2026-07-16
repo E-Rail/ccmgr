@@ -8,7 +8,7 @@ resuming your [Claude Code](https://claude.com/claude-code) CLI sessions.
 **macOS / Linux, via install script:**
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/E-Rail/ccmgr/main/install.sh | bash
+curl -fsSL https://e-rail.github.io/ccmgr/install.sh | bash
 ```
 
 Installs the `ccmgr` binary to `~/.local/bin`.

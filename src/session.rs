@@ -31,6 +31,8 @@ pub struct Session {
     pub id: String,
     pub title: String,
     pub cwd: Option<String>,
+    pub git_branch: Option<String>,
+    pub size_bytes: u64,
     pub mtime: SystemTime,
     pub path: PathBuf,
 }
@@ -92,10 +94,9 @@ fn scan_dir(dir: &Path) -> Vec<Session> {
 
 fn parse_session_file(path: &Path) -> Option<Session> {
     let id = path.file_stem()?.to_str()?.to_string();
-    let mtime = fs::metadata(path)
-        .ok()?
-        .modified()
-        .unwrap_or(SystemTime::now());
+    let metadata = fs::metadata(path).ok()?;
+    let mtime = metadata.modified().unwrap_or(SystemTime::now());
+    let size_bytes = metadata.len();
 
     let file = File::open(path).ok()?;
     let reader = BufReader::new(file);
@@ -104,6 +105,7 @@ fn parse_session_file(path: &Path) -> Option<Session> {
     let mut first_user_slug: Option<String> = None;
     let mut first_user_text: Option<String> = None;
     let mut cwd: Option<String> = None;
+    let mut git_branch: Option<String> = None;
 
     for line in reader.lines() {
         let Ok(line) = line else { continue };
@@ -117,6 +119,13 @@ fn parse_session_file(path: &Path) -> Option<Session> {
         if cwd.is_none() {
             if let Some(c) = value.get("cwd").and_then(Value::as_str) {
                 cwd = Some(c.to_string());
+            }
+        }
+        if git_branch.is_none() {
+            if let Some(b) = value.get("gitBranch").and_then(Value::as_str) {
+                if !b.is_empty() {
+                    git_branch = Some(b.to_string());
+                }
             }
         }
 
@@ -151,6 +160,8 @@ fn parse_session_file(path: &Path) -> Option<Session> {
         id,
         title,
         cwd,
+        git_branch,
+        size_bytes,
         mtime,
         path: path.to_path_buf(),
     })

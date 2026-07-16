@@ -1,7 +1,7 @@
 mod actions;
 mod app;
+mod fmt;
 mod session;
-mod time_fmt;
 mod ui;
 
 use app::App;
@@ -19,6 +19,7 @@ use std::fs;
 use std::io::{self, Stdout, Write};
 use std::os::unix::fs::PermissionsExt;
 use std::process::{self, Command};
+use std::time::Duration;
 
 struct TerminalGuard;
 
@@ -279,16 +280,24 @@ fn run(start_all: bool) -> io::Result<()> {
     Ok(())
 }
 
+const TICK_INTERVAL: Duration = Duration::from_millis(200);
+
 fn event_loop(terminal: &mut Terminal<CrosstermBackend<Stdout>>, app: &mut App) -> io::Result<()> {
     loop {
         terminal.draw(|f| ui::draw(f, app))?;
 
-        if let Event::Key(key) = event::read()? {
-            if key.kind != KeyEventKind::Press {
-                continue;
+        // Poll instead of blocking on read() so app.tick() runs regularly
+        // even when the user isn't pressing anything - that's what lets a
+        // status message clear itself after a few seconds.
+        if event::poll(TICK_INTERVAL)? {
+            if let Event::Key(key) = event::read()? {
+                if key.kind == KeyEventKind::Press {
+                    app.handle_key(key);
+                }
             }
-            app.handle_key(key);
         }
+
+        app.tick();
 
         if app.should_quit {
             break;

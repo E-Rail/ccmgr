@@ -2,6 +2,9 @@ use crate::actions;
 use crate::session::{self, Scope, Session};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use std::path::PathBuf;
+use std::time::{Duration, Instant};
+
+const STATUS_TIMEOUT: Duration = Duration::from_secs(3);
 
 pub enum Mode {
     Browsing,
@@ -19,6 +22,7 @@ pub struct App {
     pub selected: usize,
     pub mode: Mode,
     pub status: Option<String>,
+    status_set_at: Option<Instant>,
     pub should_quit: bool,
     pub resume_target: Option<(String, PathBuf)>,
 }
@@ -35,11 +39,33 @@ impl App {
             selected: 0,
             mode: Mode::Browsing,
             status: None,
+            status_set_at: None,
             should_quit: false,
             resume_target: None,
         };
         app.reload();
         app
+    }
+
+    fn set_status(&mut self, message: impl Into<String>) {
+        self.status = Some(message.into());
+        self.status_set_at = Some(Instant::now());
+    }
+
+    fn clear_status(&mut self) {
+        self.status = None;
+        self.status_set_at = None;
+    }
+
+    /// Called on every event-loop tick so transient status messages (errors,
+    /// "Renamed.", "Deleted.") clear themselves after a few seconds instead
+    /// of sitting there until the next action overwrites them.
+    pub fn tick(&mut self) {
+        if let Some(set_at) = self.status_set_at {
+            if set_at.elapsed() >= STATUS_TIMEOUT {
+                self.clear_status();
+            }
+        }
     }
 
     pub fn reload(&mut self) {
@@ -103,7 +129,7 @@ impl App {
                 self.scope = self.scope.toggled();
                 self.query.clear();
                 self.selected = 0;
-                self.status = None;
+                self.clear_status();
                 self.reload();
             }
             KeyCode::Char('r') if key.modifiers.contains(KeyModifiers::CONTROL) => {
@@ -138,14 +164,13 @@ impl App {
             Scope::AllProjects => match &session.cwd {
                 Some(c) => PathBuf::from(c),
                 None => {
-                    self.status =
-                        Some("Can't resume: unknown project directory for this session".into());
+                    self.set_status("Can't resume: unknown project directory for this session");
                     return;
                 }
             },
         };
         if !cwd.is_dir() {
-            self.status = Some(format!(
+            self.set_status(format!(
                 "Can't resume: project directory no longer exists: {}",
                 cwd.display()
             ));
@@ -193,10 +218,10 @@ impl App {
         match actions::rename_session(&session.path, &session.id, trimmed) {
             Ok(()) => {
                 self.sessions[idx].title = trimmed.to_string();
-                self.status = Some("Renamed.".to_string());
+                self.set_status("Renamed.");
             }
             Err(e) => {
-                self.status = Some(format!("Rename failed: {e}"));
+                self.set_status(format!("Rename failed: {e}"));
             }
         }
     }
@@ -222,11 +247,11 @@ impl App {
         match actions::delete_session(&session.path) {
             Ok(()) => {
                 self.sessions.remove(idx);
-                self.status = Some("Deleted.".to_string());
+                self.set_status("Deleted.");
                 self.recompute_filter();
             }
             Err(e) => {
-                self.status = Some(format!("Delete failed: {e}"));
+                self.set_status(format!("Delete failed: {e}"));
             }
         }
     }
