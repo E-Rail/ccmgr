@@ -2,7 +2,7 @@
 # Installs the ccmgr prebuilt binary for macOS/Linux from GitHub Releases.
 set -euo pipefail
 
-REPO="E-Rail/ClaudeCode-Manager"
+REPO="E-Rail/ccmgr"
 INSTALL_DIR="${CCMGR_INSTALL_DIR:-$HOME/.local/bin}"
 
 os=$(uname -s)

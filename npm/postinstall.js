@@ -9,7 +9,7 @@ const os = require("os");
 const path = require("path");
 const { execFileSync } = require("child_process");
 
-const REPO = "E-Rail/ClaudeCode-Manager";
+const REPO = "E-Rail/ccmgr";
 const pkg = require("./package.json");
 
 function targetTriple() {
