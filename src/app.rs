@@ -96,6 +96,26 @@ impl App {
         self.filtered.get(self.selected).map(|&i| &self.sessions[i])
     }
 
+    pub fn project_label(&self) -> String {
+        match self.scope {
+            Scope::CurrentProject => self
+                .current_dir
+                .file_name()
+                .and_then(|name| name.to_str())
+                .filter(|name| !name.is_empty())
+                .map(str::to_owned)
+                .unwrap_or_else(|| {
+                    let path = self.current_dir.display().to_string();
+                    if path.is_empty() {
+                        "Current project".to_string()
+                    } else {
+                        path
+                    }
+                }),
+            Scope::AllProjects => "All projects".to_string(),
+        }
+    }
+
     pub fn handle_key(&mut self, key: KeyEvent) {
         if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {
             self.should_quit = true;

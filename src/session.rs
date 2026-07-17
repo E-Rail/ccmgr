@@ -17,13 +17,6 @@ impl Scope {
             Scope::AllProjects => Scope::CurrentProject,
         }
     }
-
-    pub fn label(self) -> &'static str {
-        match self {
-            Scope::CurrentProject => "current project",
-            Scope::AllProjects => "all projects",
-        }
-    }
 }
 
 #[derive(Clone, Debug)]
