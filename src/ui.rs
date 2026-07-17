@@ -11,9 +11,10 @@ const BACKGROUND: Color = Color::Rgb(40, 44, 52);
 const ACCENT: Color = Color::Rgb(176, 185, 249);
 const TEXT: Color = Color::Rgb(153, 153, 153);
 const BORDER: Color = Color::Rgb(148, 150, 153);
-const TITLE_START: Color = Color::Rgb(145, 185, 255);
-const TITLE_END: Color = Color::Rgb(203, 181, 243);
+const CLAUDE_ORANGE: Color = Color::Rgb(218, 119, 86);
 const DANGER: Color = Color::Rgb(224, 108, 117);
+const TITLE_TEXT: &str = "ccmgr - Claude Code Session Manager";
+const LIST_ITEM_HEIGHT: u16 = 3; // title + details + blank separator
 const TEXT_STYLE: Style = Style::new().fg(TEXT);
 const INDENT: &str = "  ";
 
@@ -37,11 +38,11 @@ pub fn draw(f: &mut Frame, app: &App) {
     // project label) explicitly, in that priority order, rather than
     // leaving it to chance. The bottom bar - which can carry the delete
     // confirmation prompt - is present in every tier. Each list item takes
-    // 2 rows, so a tier is only worth using once it leaves at least 2 spare
-    // rows for the list - otherwise it'd render a session list that's
-    // always empty even though sessions exist, so that tier drops the list
-    // entirely instead.
-    if area.height >= 12 {
+    // LIST_ITEM_HEIGHT rows, so a tier is only worth using once it leaves
+    // at least that many spare rows for the list - otherwise it'd render a
+    // session list that's always empty even though sessions exist, so that
+    // tier drops the list entirely instead.
+    if area.height >= 10 + LIST_ITEM_HEIGHT {
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
@@ -62,7 +63,7 @@ pub fn draw(f: &mut Frame, app: &App) {
         draw_project_label(f, app, chunks[4]);
         draw_list(f, app, chunks[6]);
         draw_bottom(f, app, chunks[8]);
-    } else if area.height >= 8 {
+    } else if area.height >= 6 + LIST_ITEM_HEIGHT {
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
@@ -78,7 +79,7 @@ pub fn draw(f: &mut Frame, app: &App) {
         draw_project_label(f, app, chunks[2]);
         draw_list(f, app, chunks[3]);
         draw_bottom(f, app, chunks[4]);
-    } else if area.height >= 6 {
+    } else if area.height >= 4 + LIST_ITEM_HEIGHT {
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
@@ -119,10 +120,10 @@ fn draw_rule(f: &mut Frame, area: Rect) {
 }
 
 fn draw_title(f: &mut Frame, area: Rect) {
-    f.render_widget(
-        Paragraph::new(gradient_line("Resume session", Modifier::BOLD)),
-        area,
-    );
+    let style = Style::default()
+        .fg(CLAUDE_ORANGE)
+        .add_modifier(Modifier::BOLD);
+    f.render_widget(Paragraph::new(Span::styled(TITLE_TEXT, style)), area);
 }
 
 fn draw_input_box(f: &mut Frame, app: &App, area: Rect) {
@@ -236,6 +237,7 @@ fn draw_list(f: &mut Frame, app: &App, area: Rect) {
             ListItem::new(vec![
                 Line::from(title),
                 Line::from(vec![Span::raw(INDENT), Span::styled(details, TEXT_STYLE)]),
+                Line::from(""),
             ])
         })
         .collect();
@@ -269,49 +271,6 @@ fn draw_bottom(f: &mut Frame, app: &App, area: Rect) {
 
 fn line_width(s: &str) -> u16 {
     Line::from(s).width().min(u16::MAX as usize) as u16
-}
-
-fn gradient_line(text: &str, modifier: Modifier) -> Line<'static> {
-    Line::from(gradient_spans(text, modifier))
-}
-
-fn gradient_spans(text: &str, modifier: Modifier) -> Vec<Span<'static>> {
-    let characters: Vec<char> = text.chars().collect();
-    let final_index = characters.len().saturating_sub(1);
-
-    characters
-        .into_iter()
-        .enumerate()
-        .map(|(index, character)| {
-            let color = interpolate_color(TITLE_START, TITLE_END, index, final_index);
-            Span::styled(
-                character.to_string(),
-                Style::default().fg(color).add_modifier(modifier),
-            )
-        })
-        .collect()
-}
-
-fn interpolate_color(start: Color, end: Color, index: usize, final_index: usize) -> Color {
-    let (Color::Rgb(start_r, start_g, start_b), Color::Rgb(end_r, end_g, end_b)) = (start, end)
-    else {
-        return start;
-    };
-
-    if final_index == 0 {
-        return start;
-    }
-
-    let channel = |from: u8, to: u8| {
-        let from = f64::from(from);
-        let delta = f64::from(to) - from;
-        (from + delta * index as f64 / final_index as f64).round() as u8
-    };
-    Color::Rgb(
-        channel(start_r, end_r),
-        channel(start_g, end_g),
-        channel(start_b, end_b),
-    )
 }
 
 #[cfg(test)]
@@ -367,10 +326,8 @@ mod tests {
         assert_eq!(buffer.cell((2, 1)).unwrap().symbol(), "─");
         assert_eq!(buffer.cell((2, 1)).unwrap().fg, ACCENT);
 
-        assert!(buffer_line(buffer, 2).contains("Resume session"));
-        assert_eq!(buffer.cell((2, 2)).unwrap().fg, TITLE_START);
-        let title_end_x = 2 + line_width("Resume session") - 1;
-        assert_eq!(buffer.cell((title_end_x, 2)).unwrap().fg, TITLE_END);
+        assert!(buffer_line(buffer, 2).contains(TITLE_TEXT));
+        assert_eq!(buffer.cell((2, 2)).unwrap().fg, CLAUDE_ORANGE);
         assert!(buffer
             .cell((2, 2))
             .unwrap()
@@ -398,26 +355,6 @@ mod tests {
 
         app.scope = Scope::AllProjects;
         assert_eq!(app.project_label(), "All projects");
-    }
-
-    #[test]
-    fn gradient_reaches_both_endpoint_colors() {
-        let spans = gradient_spans("title", Modifier::BOLD);
-        assert_eq!(spans.first().unwrap().style.fg, Some(TITLE_START));
-        assert_eq!(spans.last().unwrap().style.fg, Some(TITLE_END));
-    }
-
-    #[test]
-    fn gradient_interpolates_symmetrically_for_mixed_sign_deltas() {
-        // start -> end has a positive delta on one channel and negative
-        // deltas on the other two; truncating division used to round these
-        // inconsistently at the same index.
-        let start = Color::Rgb(0, 100, 100);
-        let end = Color::Rgb(100, 0, 80);
-        let Color::Rgb(r, g, b) = interpolate_color(start, end, 1, 2) else {
-            panic!("expected Rgb");
-        };
-        assert_eq!((r, g, b), (50, 50, 90));
     }
 
     #[test]
@@ -459,7 +396,7 @@ mod tests {
     fn session_list_stays_visible_once_a_terminal_can_fit_one_item() {
         let app = app_with_session();
 
-        for (width, height) in [(40, 8), (40, 9), (40, 10), (40, 14)] {
+        for (width, height) in [(40, 9), (40, 11), (40, 15), (40, 20)] {
             let backend = TestBackend::new(width, height);
             let mut terminal = Terminal::new(backend).expect("terminal should initialize");
             terminal
@@ -472,6 +409,34 @@ mod tests {
                 "session title should be visible at {width}x{height}"
             );
         }
+    }
+
+    #[test]
+    fn sessions_are_separated_by_a_blank_line() {
+        let mut app = app_with_session();
+        app.sessions.push(Session {
+            id: "session-id-2".to_string(),
+            title: "A second session".to_string(),
+            cwd: Some("/tmp/ccmgr".to_string()),
+            git_branch: None,
+            size_bytes: 512,
+            mtime: SystemTime::now(),
+            path: PathBuf::from("/tmp/session-id-2.jsonl"),
+        });
+        app.filtered = vec![0, 1];
+
+        let backend = TestBackend::new(80, 24);
+        let mut terminal = Terminal::new(backend).expect("terminal should initialize");
+        terminal
+            .draw(|frame| draw(frame, &app))
+            .expect("draw should succeed");
+
+        let buffer = terminal.backend().buffer();
+        // First item occupies rows 9 (title) and 10 (details); row 11 must
+        // be a blank separator before the second item's title on row 12.
+        assert!(buffer_line(buffer, 9).contains("Claude Code"));
+        assert!(buffer_line(buffer, 11).trim().is_empty());
+        assert!(buffer_line(buffer, 12).contains("A second session"));
     }
 
     #[test]
