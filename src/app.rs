@@ -1,7 +1,10 @@
 use crate::actions;
+use crate::config::Config;
+use crate::preview::SessionPreview;
 use crate::session::{self, Scope, Session};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 const STATUS_TIMEOUT: Duration = Duration::from_secs(3);
@@ -10,9 +13,11 @@ pub enum Mode {
     Browsing,
     Renaming { input: String },
     ConfirmingDelete,
+    Previewing { preview: SessionPreview },
 }
 
 pub struct App {
+    pub config: Arc<Config>,
     claude_dir: PathBuf,
     current_dir: PathBuf,
     pub scope: Scope,
@@ -28,8 +33,9 @@ pub struct App {
 }
 
 impl App {
-    pub fn new(claude_dir: PathBuf, current_dir: PathBuf) -> Self {
+    pub fn new(claude_dir: PathBuf, current_dir: PathBuf, config: Arc<Config>) -> Self {
         let mut app = App {
+            config,
             claude_dir,
             current_dir,
             scope: Scope::CurrentProject,
@@ -126,6 +132,7 @@ impl App {
             Mode::Browsing => self.handle_browsing_key(key),
             Mode::Renaming { .. } => self.handle_renaming_key(key),
             Mode::ConfirmingDelete => self.handle_confirm_delete_key(key),
+            Mode::Previewing { .. } => self.handle_preview_key(key),
         }
     }
 
@@ -144,6 +151,9 @@ impl App {
             KeyCode::Backspace => {
                 self.query.pop();
                 self.recompute_filter();
+            }
+            KeyCode::Char(' ') => {
+                self.open_preview();
             }
             KeyCode::Tab => {
                 self.scope = self.scope.toggled();
@@ -170,6 +180,56 @@ impl App {
             KeyCode::Char(c) if !key.modifiers.contains(KeyModifiers::CONTROL) => {
                 self.query.push(c);
                 self.recompute_filter();
+            }
+            _ => {}
+        }
+    }
+
+    fn open_preview(&mut self) {
+        let Some(session) = self.selected_session() else {
+            return;
+        };
+        let title = session.title.clone();
+        let path = session.path.clone();
+
+        match SessionPreview::load(title, &path) {
+            Ok(preview) => {
+                self.clear_status();
+                self.mode = Mode::Previewing { preview };
+            }
+            Err(error) => {
+                self.set_status(format!("Preview failed: {error}"));
+            }
+        }
+    }
+
+    fn handle_preview_key(&mut self, key: KeyEvent) {
+        match key.code {
+            KeyCode::Esc => {
+                self.mode = Mode::Browsing;
+            }
+            KeyCode::Enter => {
+                self.try_resume();
+            }
+            KeyCode::Up => {
+                if let Mode::Previewing { preview } = &mut self.mode {
+                    preview.scroll_from_bottom = preview.scroll_from_bottom.saturating_add(1);
+                }
+            }
+            KeyCode::Down => {
+                if let Mode::Previewing { preview } = &mut self.mode {
+                    preview.scroll_from_bottom = preview.scroll_from_bottom.saturating_sub(1);
+                }
+            }
+            KeyCode::PageUp => {
+                if let Mode::Previewing { preview } = &mut self.mode {
+                    preview.scroll_from_bottom = preview.scroll_from_bottom.saturating_add(10);
+                }
+            }
+            KeyCode::PageDown => {
+                if let Mode::Previewing { preview } = &mut self.mode {
+                    preview.scroll_from_bottom = preview.scroll_from_bottom.saturating_sub(10);
+                }
             }
             _ => {}
         }
@@ -274,5 +334,111 @@ impl App {
                 self.set_status(format!("Delete failed: {e}"));
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crossterm::event::KeyEvent;
+    use std::fs;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::time::SystemTime;
+
+    static NEXT_TEMP_PATH: AtomicUsize = AtomicUsize::new(0);
+
+    fn key(code: KeyCode) -> KeyEvent {
+        KeyEvent::new(code, KeyModifiers::NONE)
+    }
+
+    fn previewable_app() -> (App, PathBuf) {
+        let sequence = NEXT_TEMP_PATH.fetch_add(1, Ordering::Relaxed);
+        let path = std::env::temp_dir().join(format!(
+            "ccmgr-preview-test-{}-{sequence}.jsonl",
+            std::process::id()
+        ));
+        fs::write(
+            &path,
+            concat!(
+                "{\"type\":\"user\",\"uuid\":\"u1\",\"parentUuid\":null,",
+                "\"message\":{\"content\":\"Preview this\"}}\n",
+                "{\"type\":\"assistant\",\"uuid\":\"a1\",\"parentUuid\":\"u1\",",
+                "\"message\":{\"id\":\"m1\",\"content\":[",
+                "{\"type\":\"text\",\"text\":\"Ready\"}]}}\n"
+            ),
+        )
+        .expect("preview fixture should be written");
+
+        let current_dir = std::env::temp_dir();
+        let mut app = App::new(
+            PathBuf::from("/definitely-not-a-real-claude-dir"),
+            current_dir.clone(),
+            Arc::new(Config::default()),
+        );
+        app.sessions = vec![Session {
+            id: "session-id".to_string(),
+            title: "Previewable session".to_string(),
+            cwd: Some(current_dir.display().to_string()),
+            git_branch: None,
+            size_bytes: 1,
+            mtime: SystemTime::now(),
+            path: path.clone(),
+        }];
+        app.filtered = vec![0];
+        (app, path)
+    }
+
+    #[test]
+    fn space_opens_preview_and_escape_restores_browsing() {
+        let (mut app, path) = previewable_app();
+
+        app.handle_key(key(KeyCode::Char(' ')));
+        let Mode::Previewing { preview } = &app.mode else {
+            panic!("space should open the selected session preview");
+        };
+        assert_eq!(preview.messages.len(), 2);
+
+        app.handle_key(key(KeyCode::Up));
+        let Mode::Previewing { preview } = &app.mode else {
+            panic!("up should keep preview open");
+        };
+        assert_eq!(preview.scroll_from_bottom, 1);
+
+        app.handle_key(key(KeyCode::Char(' ')));
+        assert!(matches!(app.mode, Mode::Previewing { .. }));
+
+        app.handle_key(key(KeyCode::Esc));
+        assert!(matches!(app.mode, Mode::Browsing));
+
+        fs::remove_file(path).expect("preview fixture should be removed");
+    }
+
+    #[test]
+    fn enter_from_preview_uses_the_existing_resume_path() {
+        let (mut app, path) = previewable_app();
+        app.handle_key(key(KeyCode::Char(' ')));
+
+        app.handle_key(key(KeyCode::Enter));
+
+        assert!(app.should_quit);
+        assert_eq!(
+            app.resume_target.as_ref().map(|(id, _)| id.as_str()),
+            Some("session-id")
+        );
+        fs::remove_file(path).expect("preview fixture should be removed");
+    }
+
+    #[test]
+    fn preview_load_errors_stay_in_browsing_mode() {
+        let (mut app, path) = previewable_app();
+        fs::remove_file(path).expect("preview fixture should be removed");
+
+        app.handle_key(key(KeyCode::Char(' ')));
+
+        assert!(matches!(app.mode, Mode::Browsing));
+        assert!(app
+            .status
+            .as_deref()
+            .is_some_and(|status| status.starts_with("Preview failed:")));
     }
 }

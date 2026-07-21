@@ -1,10 +1,13 @@
 mod actions;
 mod app;
+mod config;
 mod fmt;
+mod preview;
 mod session;
 mod ui;
 
 use app::App;
+use config::Config;
 use crossterm::cursor::Show;
 use crossterm::event::{self, Event, KeyEventKind};
 use crossterm::execute;
@@ -19,6 +22,7 @@ use std::fs;
 use std::io::{self, Stdout, Write};
 use std::os::unix::fs::PermissionsExt;
 use std::process::{self, Command};
+use std::sync::Arc;
 use std::time::Duration;
 
 struct TerminalGuard;
@@ -95,10 +99,12 @@ COMMANDS:
 KEYS (inside the TUI):
     Up/Down        Move selection
     (type)         Live-filter the list
+    Space          Preview the selected session
     Enter          Resume the selected session
     Ctrl+R         Rename the selected session
     Ctrl+D         Delete the selected session (asks for confirmation)
     Tab            Toggle between current project and all projects
+    Esc            Close the session preview
     Ctrl+C         Quit"
     );
 }
@@ -249,8 +255,9 @@ fn run(start_all: bool) -> io::Result<()> {
         process::exit(1);
     };
     let current_dir = std::env::current_dir()?;
+    let config = Arc::new(Config::load()?);
 
-    let mut app = App::new(claude_dir, current_dir);
+    let mut app = App::new(claude_dir, current_dir, config);
     if start_all {
         app.scope = Scope::AllProjects;
         app.reload();
