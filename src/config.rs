@@ -7,7 +7,6 @@ use std::path::{Path, PathBuf};
 #[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Eq)]
 #[serde(default, deny_unknown_fields)]
 pub struct Config {
-    pub appearance: AppearanceSetting,
     pub theme: ThemeOverrides,
 }
 
@@ -28,16 +27,10 @@ impl Config {
             })
     }
 
-    /// Pick the palette to draw with. `detected` is what the terminal
-    /// reported about its own background; an explicit `appearance` in the
-    /// config overrides it, and individual `[theme]` colors override that.
-    pub fn theme(&self, detected: Appearance) -> Theme {
-        let appearance = match self.appearance {
-            AppearanceSetting::Auto => detected,
-            AppearanceSetting::Dark => Appearance::Dark,
-            AppearanceSetting::Light => Appearance::Light,
-        };
-        self.theme.applied_to(Theme::for_appearance(appearance))
+    /// The palette to draw with: the defaults, with any configured colors
+    /// laid over the top.
+    pub fn theme(&self) -> Theme {
+        self.theme.applied_to(Theme::default())
     }
 
     fn load_from_path(path: &Path) -> io::Result<Self> {
@@ -63,26 +56,8 @@ impl Config {
     }
 }
 
-/// Whether the terminal is painting light text on a dark background or the
-/// other way around. Detected at startup - see `crate::appearance`.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Appearance {
-    Dark,
-    Light,
-}
-
-#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "lowercase")]
-pub enum AppearanceSetting {
-    #[default]
-    Auto,
-    Dark,
-    Light,
-}
-
-/// The colors a user asked for. Everything left unset falls back to the
-/// palette for the detected appearance, so a config only has to name the
-/// colors it actually wants to change.
+/// The colors a user asked for. Everything left unset keeps its default, so
+/// a config only has to name the colors it actually wants to change.
 #[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Eq)]
 #[serde(default, deny_unknown_fields)]
 pub struct ThemeOverrides {
@@ -117,46 +92,24 @@ pub struct Theme {
     pub danger: Color,
 }
 
-impl Theme {
-    pub fn for_appearance(appearance: Appearance) -> Self {
-        match appearance {
-            Appearance::Dark => Self::dark(),
-            Appearance::Light => Self::light(),
-        }
-    }
-
-    /// For light text on a dark terminal.
-    pub fn dark() -> Self {
-        Self {
-            // Never paint our own background - `Reset` leaves the terminal's
-            // own background showing through, so ccmgr sits on whatever the
-            // user's color scheme (or transparency) already draws.
-            background: Color::Reset,
-            accent: Color::Rgb(176, 185, 249),
-            text: Color::Rgb(153, 153, 153),
-            border: Color::Rgb(148, 150, 153),
-            title: Color::Rgb(218, 119, 86),
-            danger: Color::Rgb(224, 108, 117),
-        }
-    }
-
-    /// The same palette darkened until it stays readable on a light
-    /// terminal - the dark one's pale accent all but vanishes on white.
-    pub fn light() -> Self {
-        Self {
-            background: Color::Reset,
-            accent: Color::Rgb(74, 88, 199),
-            text: Color::Rgb(90, 90, 90),
-            border: Color::Rgb(122, 124, 128),
-            title: Color::Rgb(191, 87, 51),
-            danger: Color::Rgb(190, 52, 58),
-        }
-    }
-}
-
+/// Every default is a terminal palette entry rather than a fixed RGB value,
+/// so ccmgr is drawn in the same colors as everything else in the terminal.
+/// Whatever scheme the user picked - Solarized, Gruvbox, Dracula, light or
+/// dark - recolors ccmgr along with it, which no hardcoded palette of ours
+/// could match.
 impl Default for Theme {
     fn default() -> Self {
-        Self::dark()
+        Self {
+            // `Reset` is the terminal's own background and foreground, so
+            // ccmgr never paints over a background image or transparency,
+            // and body text is whatever the user reads everything else in.
+            background: Color::Reset,
+            text: Color::Reset,
+            accent: Color::Cyan,
+            border: Color::DarkGray,
+            title: Color::Yellow,
+            danger: Color::Red,
+        }
     }
 }
 
@@ -176,73 +129,28 @@ mod tests {
     }
 
     #[test]
-    fn neither_palette_paints_a_background() {
-        assert_eq!(Theme::dark().background, Color::Reset);
-        assert_eq!(Theme::light().background, Color::Reset);
-    }
-
-    #[test]
-    fn the_dark_palette_preserves_the_existing_colors() {
-        let theme = Theme::dark();
-        assert_eq!(theme.accent, Color::Rgb(176, 185, 249));
-        assert_eq!(theme.text, Color::Rgb(153, 153, 153));
-        assert_eq!(theme.border, Color::Rgb(148, 150, 153));
-        assert_eq!(theme.title, Color::Rgb(218, 119, 86));
-        assert_eq!(theme.danger, Color::Rgb(224, 108, 117));
-    }
-
-    #[test]
-    fn every_light_palette_color_stays_readable_on_white() {
-        // WCAG 2.1 contrast against white. Borders are decorative, so they
-        // only need the 3:1 required of UI components; everything else
-        // carries text and has to clear 4.5:1.
-        let theme = Theme::light();
-        for (name, color, minimum) in [
-            ("accent", theme.accent, 4.5),
-            ("text", theme.text, 4.5),
-            ("border", theme.border, 3.0),
-            ("title", theme.title, 4.5),
-            ("danger", theme.danger, 4.5),
+    fn no_default_color_is_hardcoded_to_a_fixed_value() {
+        let theme = Theme::default();
+        for (name, color) in [
+            ("background", theme.background),
+            ("accent", theme.accent),
+            ("text", theme.text),
+            ("border", theme.border),
+            ("title", theme.title),
+            ("danger", theme.danger),
         ] {
-            let Color::Rgb(red, green, blue) = color else {
-                panic!("{name} should be an explicit RGB color");
-            };
-            let ratio = 1.05 / (relative_luminance(red, green, blue) + 0.05);
             assert!(
-                ratio >= minimum,
-                "{name} only reaches {ratio:.2}:1 on white, needs {minimum}:1"
+                !matches!(color, Color::Rgb(..) | Color::Indexed(..)),
+                "{name} defaults to {color:?}, which ignores the terminal's palette"
             );
         }
     }
 
-    fn relative_luminance(red: u8, green: u8, blue: u8) -> f64 {
-        fn channel(value: u8) -> f64 {
-            let value = value as f64 / 255.0;
-            if value <= 0.03928 {
-                value / 12.92
-            } else {
-                ((value + 0.055) / 1.055).powf(2.4)
-            }
-        }
-        0.2126 * channel(red) + 0.7152 * channel(green) + 0.0722 * channel(blue)
-    }
-
     #[test]
-    fn auto_appearance_follows_the_terminal() {
-        let config = Config::default();
-        assert_eq!(config.theme(Appearance::Dark), Theme::dark());
-        assert_eq!(config.theme(Appearance::Light), Theme::light());
-    }
-
-    #[test]
-    fn an_explicit_appearance_overrides_what_the_terminal_reports() {
-        let config: Config =
-            toml::from_str("appearance = \"dark\"").expect("appearance should parse");
-        assert_eq!(config.theme(Appearance::Light), Theme::dark());
-
-        let config: Config =
-            toml::from_str("appearance = \"light\"").expect("appearance should parse");
-        assert_eq!(config.theme(Appearance::Dark), Theme::light());
+    fn the_terminals_own_colors_are_used_for_the_background_and_body_text() {
+        let theme = Theme::default();
+        assert_eq!(theme.background, Color::Reset);
+        assert_eq!(theme.text, Color::Reset);
     }
 
     #[test]
@@ -256,10 +164,10 @@ mod tests {
         )
         .expect("partial theme should parse");
 
-        let theme = config.theme(Appearance::Light);
+        let theme = config.theme();
         assert_eq!(theme.accent, Color::Rgb(1, 2, 3));
         assert_eq!(theme.title, Color::Blue);
-        assert_eq!(theme.text, Theme::light().text);
+        assert_eq!(theme.text, Theme::default().text);
         assert_eq!(theme.background, Color::Reset);
     }
 
@@ -267,17 +175,21 @@ mod tests {
     fn a_background_override_is_still_honored() {
         let config: Config = toml::from_str("[theme]\nbackground = \"#282c34\"")
             .expect("background override should parse");
-        assert_eq!(
-            config.theme(Appearance::Dark).background,
-            Color::Rgb(40, 44, 52)
-        );
+        assert_eq!(config.theme().background, Color::Rgb(40, 44, 52));
+    }
+
+    #[test]
+    fn palette_indexes_and_names_are_accepted() {
+        let config: Config = toml::from_str("[theme]\naccent = \"5\"\ntitle = \"light-red\"")
+            .expect("palette colors should parse");
+        assert_eq!(config.theme().accent, Color::Indexed(5));
+        assert_eq!(config.theme().title, Color::LightRed);
     }
 
     #[test]
     fn invalid_colors_and_unknown_fields_are_rejected() {
         assert!(toml::from_str::<Config>("[theme]\naccent = \"not-a-color\"").is_err());
         assert!(toml::from_str::<Config>("[theme]\nacccent = \"blue\"").is_err());
-        assert!(toml::from_str::<Config>("appearance = \"sepia\"").is_err());
     }
 
     #[test]

@@ -718,8 +718,36 @@ mod tests {
     }
 
     #[test]
+    fn the_default_ui_is_drawn_entirely_in_terminal_palette_colors() {
+        let mut app = app_with_session();
+
+        for mode in [Mode::Browsing, Mode::ConfirmingDelete] {
+            app.mode = mode;
+            let backend = TestBackend::new(100, 30);
+            let mut terminal = Terminal::new(backend).expect("terminal should initialize");
+            terminal
+                .draw(|frame| draw(frame, &mut app))
+                .expect("draw should succeed");
+
+            let buffer = terminal.backend().buffer();
+            for y in 0..30 {
+                for x in 0..100 {
+                    let cell = buffer.cell((x, y)).expect("cell should exist");
+                    for (role, color) in [("foreground", cell.fg), ("background", cell.bg)] {
+                        assert!(
+                            !matches!(color, Color::Rgb(..)),
+                            "cell ({x}, {y}) has a hardcoded {role} {color:?}, \
+                             which overrides the terminal's own palette"
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
     fn the_terminals_own_background_shows_through_by_default() {
-        for theme in [Theme::dark(), Theme::light()] {
+        for theme in [Theme::default()] {
             let mut app = app_with_theme(theme);
             app.mode = Mode::Previewing {
                 preview: SessionPreview {

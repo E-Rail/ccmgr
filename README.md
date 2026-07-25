@@ -68,43 +68,45 @@ ccmgr loads an optional TOML config from the platform config directory:
 Set `CCMGR_CONFIG` to use a different file. Everything is optional, so a
 config only needs the settings you actually want to change.
 
-### Light and dark terminals
-
-ccmgr never paints its own background — your terminal's background (and any
-transparency) shows through. It asks the terminal what that background is at
-startup and picks a palette that stays readable against it, so it looks right
-on light and dark themes alike without any configuration.
-
-Terminals that don't answer the question are assumed to be dark. To skip the
-detection entirely:
-
-```toml
-appearance = "dark"   # or "light", or "auto" (the default)
-```
-
 ### Colors
 
-Any color left unset comes from the palette for the detected appearance:
+ccmgr draws itself in your terminal's own palette rather than in fixed RGB
+values, so whichever scheme you use — Solarized, Gruvbox, Dracula, light or
+dark — recolors ccmgr along with everything else. It never paints a
+background either, so transparency and background images show through.
+
+The defaults are all palette entries:
 
 ```toml
 [theme]
-accent = "#b0b9f9"    # selection, rules, "You" labels
-text = "#999999"      # session titles, details, hints
-border = "#949699"    # box borders, placeholder text
-title = "#da7756"     # the heading and "Claude" labels in a preview
-danger = "#e06c75"    # delete confirmation and error status
-background = "#282c34"  # unset by default - the terminal's own background
+text = "reset"        # session titles, details, hints
+background = "reset"  # the terminal's own background
+accent = "cyan"       # selection, rules, "You" labels
+border = "dark-gray"  # box borders, placeholder text
+title = "yellow"      # the heading and "Claude" labels in a preview
+danger = "red"        # delete confirmation and error status
 ```
 
-Colors accept names such as `"blue"`, RGB hex values, and terminal palette
-indexes. Setting `background` opts back into ccmgr painting a solid
-background of its own.
+`"reset"` means the terminal's own default foreground or background. Colors
+also accept names such as `"blue"`, palette indexes such as `"5"`, and RGB
+hex values such as `"#da7756"`. Naming a color pins it to exactly that value
+and stops it following your terminal theme, which is the point if you want a
+specific look — this restores the fixed palette used before v0.1.9:
+
+```toml
+[theme]
+background = "#282c34"
+accent = "#b0b9f9"
+text = "#999999"
+border = "#949699"
+title = "#da7756"
+danger = "#e06c75"
+```
 
 ## Source layout
 
 - `src/app.rs` owns application state and keyboard behavior.
-- `src/appearance.rs` asks the terminal whether it is light or dark.
-- `src/config.rs` loads the optional config and defines the two palettes.
+- `src/config.rs` loads the optional config and defines the default palette.
 - `src/preview.rs` reads Claude JSONL history and builds the active transcript.
 - `src/ui.rs` renders the session picker and preview.
 - `src/session.rs` discovers sessions; `src/actions.rs` changes or resumes them.

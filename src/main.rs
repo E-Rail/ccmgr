@@ -1,6 +1,5 @@
 mod actions;
 mod app;
-mod appearance;
 mod config;
 mod fmt;
 mod preview;
@@ -257,19 +256,13 @@ fn run(start_all: bool) -> io::Result<()> {
     let current_dir = std::env::current_dir()?;
     let config = Config::load()?;
 
-    let guard = TerminalGuard::new()?;
-
-    // A cooked terminal buffers the background-color reply until the user
-    // presses Enter, so this has to run once raw mode is on - i.e. after
-    // the guard is up.
-    let theme = config.theme(appearance::detect());
-
-    let mut app = App::new(claude_dir, current_dir, theme);
+    let mut app = App::new(claude_dir, current_dir, config.theme());
     if start_all {
         app.scope = Scope::AllProjects;
         app.reload();
     }
 
+    let guard = TerminalGuard::new()?;
     let backend = CrosstermBackend::new(io::stdout());
     let mut terminal = Terminal::new(backend)?;
 
