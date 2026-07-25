@@ -64,6 +64,7 @@ pub struct ThemeOverrides {
     pub background: Option<Color>,
     pub accent: Option<Color>,
     pub text: Option<Color>,
+    pub muted: Option<Color>,
     pub border: Option<Color>,
     pub title: Option<Color>,
     pub danger: Option<Color>,
@@ -75,6 +76,7 @@ impl ThemeOverrides {
             background: self.background.unwrap_or(base.background),
             accent: self.accent.unwrap_or(base.accent),
             text: self.text.unwrap_or(base.text),
+            muted: self.muted.unwrap_or(base.muted),
             border: self.border.unwrap_or(base.border),
             title: self.title.unwrap_or(base.title),
             danger: self.danger.unwrap_or(base.danger),
@@ -87,6 +89,7 @@ pub struct Theme {
     pub background: Color,
     pub accent: Color,
     pub text: Color,
+    pub muted: Color,
     pub border: Color,
     pub title: Color,
     pub danger: Color,
@@ -100,14 +103,19 @@ pub struct Theme {
 impl Default for Theme {
     fn default() -> Self {
         Self {
-            // `Reset` is the terminal's own background and foreground, so
-            // ccmgr never paints over a background image or transparency,
-            // and body text is whatever the user reads everything else in.
+            // `Reset` is the terminal's own background and foreground. It
+            // keeps ccmgr off any background image or transparency, and it
+            // renders session titles in the same white a dark terminal uses
+            // for everything else - without turning invisible the way a
+            // literal `white` would on a light one.
             background: Color::Reset,
             text: Color::Reset,
-            accent: Color::Cyan,
+            // Bright blue rather than plain blue: ANSI blue is very dark on
+            // most schemes and hard to read against a dark background.
+            accent: Color::LightBlue,
+            title: Color::LightBlue,
+            muted: Color::DarkGray,
             border: Color::DarkGray,
-            title: Color::Yellow,
             danger: Color::Red,
         }
     }

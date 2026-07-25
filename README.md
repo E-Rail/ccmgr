@@ -75,32 +75,36 @@ values, so whichever scheme you use — Solarized, Gruvbox, Dracula, light or
 dark — recolors ccmgr along with everything else. It never paints a
 background either, so transparency and background images show through.
 
-The defaults are all palette entries:
+Titles carry the color; everything supporting them recedes into grey. The
+defaults are all palette entries:
 
 ```toml
 [theme]
-text = "reset"        # session titles, details, hints
-background = "reset"  # the terminal's own background
-accent = "cyan"       # selection, rules, "You" labels
-border = "dark-gray"  # box borders, placeholder text
-title = "yellow"      # the heading and "Claude" labels in a preview
-danger = "red"        # delete confirmation and error status
+accent = "light-blue"  # the rule, the selected session, "You" labels
+title = "light-blue"   # the heading, and "Claude" labels in a preview
+text = "reset"         # unselected session titles, preview messages
+muted = "dark-gray"    # details, hints, the search placeholder
+border = "dark-gray"   # box borders
+danger = "red"         # delete confirmation and error status
+background = "reset"   # the terminal's own background
 ```
 
-`"reset"` means the terminal's own default foreground or background. Colors
-also accept names such as `"blue"`, palette indexes such as `"5"`, and RGB
-hex values such as `"#da7756"`. Naming a color pins it to exactly that value
-and stops it following your terminal theme, which is the point if you want a
-specific look — this restores the fixed palette used before v0.1.9:
+`"reset"` means the terminal's own default foreground or background — which
+is why unselected titles read as white on a dark terminal without turning
+invisible on a light one. Colors also accept names such as `"blue"`, palette
+indexes such as `"5"`, and RGB hex values such as `"#da7756"`. Naming a color
+pins it to exactly that value and stops it following your terminal theme,
+which is the point if you want a specific look:
 
 ```toml
 [theme]
-background = "#282c34"
 accent = "#b0b9f9"
-text = "#999999"
+title = "#b0b9f9"
+text = "#ffffff"
+muted = "#999999"
 border = "#949699"
-title = "#da7756"
 danger = "#e06c75"
+background = "#282c34"
 ```
 
 ## Source layout

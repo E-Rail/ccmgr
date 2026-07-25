@@ -162,7 +162,7 @@ fn draw_input_box(f: &mut Frame, app: &App, area: Rect, theme: &Theme) {
     };
 
     let text_style = if is_placeholder {
-        Style::default().fg(theme.border)
+        Style::default().fg(theme.muted)
     } else {
         Style::default().fg(theme.text)
     };
@@ -173,7 +173,7 @@ fn draw_input_box(f: &mut Frame, app: &App, area: Rect, theme: &Theme) {
         .constraints([Constraint::Length(prefix_width), Constraint::Min(0)])
         .split(inner);
     f.render_widget(
-        Paragraph::new(Span::styled(prefix, Style::default().fg(theme.border))),
+        Paragraph::new(Span::styled(prefix, Style::default().fg(theme.muted))),
         input_chunks[0],
     );
 
@@ -196,7 +196,7 @@ fn draw_input_box(f: &mut Frame, app: &App, area: Rect, theme: &Theme) {
 fn draw_project_label(f: &mut Frame, app: &App, area: Rect, theme: &Theme) {
     let line = Line::from(vec![
         Span::raw(INDENT),
-        Span::styled(app.project_label(), Style::default().fg(theme.text)),
+        Span::styled(app.project_label(), Style::default().fg(theme.muted)),
     ]);
     f.render_widget(Paragraph::new(line), area);
 }
@@ -206,7 +206,7 @@ fn draw_list(f: &mut Frame, app: &App, area: Rect, theme: &Theme) {
         f.render_widget(
             Paragraph::new(Line::from(vec![
                 Span::raw(INDENT),
-                Span::styled("No sessions found", Style::default().fg(theme.text)),
+                Span::styled("No sessions found", Style::default().fg(theme.muted)),
             ])),
             area,
         );
@@ -254,7 +254,7 @@ fn draw_list(f: &mut Frame, app: &App, area: Rect, theme: &Theme) {
                 Line::from(title),
                 Line::from(vec![
                     Span::raw(INDENT),
-                    Span::styled(details, Style::default().fg(theme.text)),
+                    Span::styled(details, Style::default().fg(theme.muted)),
                 ]),
                 Line::from(""),
             ])
@@ -276,14 +276,14 @@ fn draw_bottom(f: &mut Frame, app: &App, area: Rect, theme: &Theme) {
         ),
         Mode::Renaming { .. } => (
             "Enter to save · Esc to cancel".to_string(),
-            theme.text,
+            theme.muted,
         ),
         Mode::Browsing => match &app.status {
-            Some(status) => (status.clone(), theme.text),
+            Some(status) => (status.clone(), theme.muted),
             None => (
                 "Type to search · ↑/↓ move · Space preview · Enter resume · Ctrl+R rename · Ctrl+D delete · Tab scope · Ctrl+C quit"
                     .to_string(),
-                theme.text,
+                theme.muted,
             ),
         },
         Mode::Previewing { .. } => return,
@@ -479,7 +479,7 @@ fn display_line<'a>(line: &'a PreviewDisplayLine, theme: &Theme) -> Line<'a> {
         ]),
         PreviewDisplayLine::Muted(text) => Line::from(Span::styled(
             text.as_str(),
-            Style::default().fg(theme.border),
+            Style::default().fg(theme.muted),
         )),
         PreviewDisplayLine::Blank => Line::default(),
     }
@@ -490,7 +490,7 @@ fn draw_preview_bottom(f: &mut Frame, status: Option<&str>, area: Rect, theme: &
         Some(status) => (status, theme.danger),
         None => (
             "Esc close · Enter resume · ↑/↓ scroll · PgUp/PgDn page",
-            theme.text,
+            theme.muted,
         ),
     };
     let line = Line::from(vec![
@@ -622,8 +622,53 @@ mod tests {
         assert_eq!(buffer.cell((2, 9)).unwrap().symbol(), "❯");
         assert_eq!(buffer.cell((2, 9)).unwrap().fg, theme.accent);
         assert_eq!(buffer.cell((4, 9)).unwrap().fg, theme.accent);
-        assert_eq!(buffer.cell((4, 10)).unwrap().fg, theme.text);
+        assert_eq!(buffer.cell((4, 10)).unwrap().fg, theme.muted);
         assert!((0..24).any(|y| buffer_line(buffer, y).contains("Type to search")));
+    }
+
+    /// The session list is the one place `text` is meant to appear: titles
+    /// stand out, and every supporting detail recedes into `muted`.
+    #[test]
+    fn only_titles_use_the_text_color_everything_else_is_muted() {
+        let mut app = app_with_session();
+        app.sessions.push(Session {
+            id: "session-id-2".to_string(),
+            title: "An unselected session".to_string(),
+            cwd: Some("/tmp/ccmgr".to_string()),
+            git_branch: Some("main".to_string()),
+            size_bytes: 512,
+            mtime: SystemTime::now(),
+            path: PathBuf::from("/tmp/session-id-2.jsonl"),
+        });
+        app.filtered = vec![0, 1];
+        let theme = app.theme;
+
+        let backend = TestBackend::new(80, 24);
+        let mut terminal = Terminal::new(backend).expect("terminal should initialize");
+        terminal
+            .draw(|frame| draw(frame, &mut app))
+            .expect("draw should succeed");
+        let buffer = terminal.backend().buffer();
+
+        let selected = text_position(buffer, "Claude Code session manager").expect("selected row");
+        assert_eq!(buffer.cell(selected).unwrap().fg, theme.accent);
+
+        let unselected = text_position(buffer, "An unselected session").expect("unselected row");
+        assert_eq!(buffer.cell(unselected).unwrap().fg, theme.text);
+
+        for label in ["main", "Type to search"] {
+            let position = text_position(buffer, label).expect("supporting text should render");
+            assert_eq!(
+                buffer.cell(position).unwrap().fg,
+                theme.muted,
+                "{label:?} should be muted, not drawn in the title color"
+            );
+        }
+
+        // The project label shares its text with the heading, so match it by
+        // position (row 7, past the indent) rather than by content.
+        assert!(buffer_line(buffer, 7).contains("ccmgr"));
+        assert_eq!(buffer.cell((4, 7)).unwrap().fg, theme.muted);
     }
 
     #[test]
@@ -816,10 +861,23 @@ mod tests {
             background: Color::Rgb(1, 2, 3),
             accent: Color::Rgb(4, 5, 6),
             text: Color::Rgb(7, 8, 9),
+            muted: Color::Rgb(16, 17, 18),
             border: Color::Rgb(10, 11, 12),
             title: Color::Rgb(13, 14, 15),
             danger: Color::Rgb(19, 20, 21),
         });
+        // `text` only colors unselected titles, so the list needs a second
+        // session before that slot appears on screen at all.
+        app.sessions.push(Session {
+            id: "session-id-2".to_string(),
+            title: "An unselected session".to_string(),
+            cwd: None,
+            git_branch: None,
+            size_bytes: 512,
+            mtime: SystemTime::now(),
+            path: PathBuf::from("/tmp/session-id-2.jsonl"),
+        });
+        app.filtered = vec![0, 1];
         let theme = app.theme;
         let backend = TestBackend::new(80, 24);
         let mut terminal = Terminal::new(backend).expect("terminal should initialize");
@@ -832,7 +890,9 @@ mod tests {
         let title_last_x = 2 + line_width(TITLE_TEXT) - 1;
         assert_eq!(buffer.cell((title_last_x, 2)).unwrap().fg, theme.title);
         assert_eq!(buffer.cell((2, 4)).unwrap().fg, theme.border);
-        assert_eq!(buffer.cell((4, 10)).unwrap().fg, theme.text);
+        assert_eq!(buffer.cell((4, 10)).unwrap().fg, theme.muted);
+        let unselected = text_position(buffer, "An unselected session").expect("unselected row");
+        assert_eq!(buffer.cell(unselected).unwrap().fg, theme.text);
 
         app.mode = Mode::ConfirmingDelete;
         terminal.draw(|frame| draw(frame, &mut app)).unwrap();
