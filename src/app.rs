@@ -1,10 +1,9 @@
 use crate::actions;
-use crate::config::Config;
+use crate::config::Theme;
 use crate::preview::SessionPreview;
 use crate::session::{self, Scope, Session};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use std::path::PathBuf;
-use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 const STATUS_TIMEOUT: Duration = Duration::from_secs(3);
@@ -17,7 +16,7 @@ pub enum Mode {
 }
 
 pub struct App {
-    pub config: Arc<Config>,
+    pub theme: Theme,
     claude_dir: PathBuf,
     current_dir: PathBuf,
     pub scope: Scope,
@@ -33,9 +32,9 @@ pub struct App {
 }
 
 impl App {
-    pub fn new(claude_dir: PathBuf, current_dir: PathBuf, config: Arc<Config>) -> Self {
+    pub fn new(claude_dir: PathBuf, current_dir: PathBuf, theme: Theme) -> Self {
         let mut app = App {
-            config,
+            theme,
             claude_dir,
             current_dir,
             scope: Scope::CurrentProject,
@@ -373,7 +372,7 @@ mod tests {
         let mut app = App::new(
             PathBuf::from("/definitely-not-a-real-claude-dir"),
             current_dir.clone(),
-            Arc::new(Config::default()),
+            Theme::default(),
         );
         app.sessions = vec![Session {
             id: "session-id".to_string(),

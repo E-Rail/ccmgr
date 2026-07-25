@@ -1,5 +1,6 @@
 mod actions;
 mod app;
+mod appearance;
 mod config;
 mod fmt;
 mod preview;
@@ -22,7 +23,6 @@ use std::fs;
 use std::io::{self, Stdout, Write};
 use std::os::unix::fs::PermissionsExt;
 use std::process::{self, Command};
-use std::sync::Arc;
 use std::time::Duration;
 
 struct TerminalGuard;
@@ -255,15 +255,21 @@ fn run(start_all: bool) -> io::Result<()> {
         process::exit(1);
     };
     let current_dir = std::env::current_dir()?;
-    let config = Arc::new(Config::load()?);
+    let config = Config::load()?;
 
-    let mut app = App::new(claude_dir, current_dir, config);
+    let guard = TerminalGuard::new()?;
+
+    // A cooked terminal buffers the background-color reply until the user
+    // presses Enter, so this has to run once raw mode is on - i.e. after
+    // the guard is up.
+    let theme = config.theme(appearance::detect());
+
+    let mut app = App::new(claude_dir, current_dir, theme);
     if start_all {
         app.scope = Scope::AllProjects;
         app.reload();
     }
 
-    let guard = TerminalGuard::new()?;
     let backend = CrosstermBackend::new(io::stdout());
     let mut terminal = Terminal::new(backend)?;
 

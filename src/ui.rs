@@ -18,7 +18,7 @@ const MAX_PREVIEW_LINES: usize = 20_000;
 const INDENT: &str = "  ";
 
 pub fn draw(f: &mut Frame, app: &mut App) {
-    let theme = app.config.theme.clone();
+    let theme = app.theme;
     let full = f.area();
     if full.is_empty() {
         return;
@@ -131,7 +131,9 @@ fn draw_rule(f: &mut Frame, area: Rect, theme: &Theme) {
 }
 
 fn draw_title(f: &mut Frame, area: Rect, theme: &Theme) {
-    let style = Style::default().fg(theme.title).add_modifier(Modifier::BOLD);
+    let style = Style::default()
+        .fg(theme.title)
+        .add_modifier(Modifier::BOLD);
     f.render_widget(Paragraph::new(Span::styled(TITLE_TEXT, style)), area);
 }
 
@@ -313,7 +315,9 @@ fn draw_preview(
             ])
             .split(area);
         draw_rule(f, chunks[0], theme);
-        let title_style = Style::default().fg(theme.title).add_modifier(Modifier::BOLD);
+        let title_style = Style::default()
+            .fg(theme.title)
+            .add_modifier(Modifier::BOLD);
         f.render_widget(
             Paragraph::new(Span::styled("Preview session", title_style)),
             chunks[1],
@@ -531,14 +535,12 @@ fn line_width(s: &str) -> u16 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::Config;
     use crate::session::Session;
     use ratatui::backend::TestBackend;
     use ratatui::buffer::Buffer;
     use ratatui::style::Color;
     use ratatui::Terminal;
     use std::path::PathBuf;
-    use std::sync::Arc;
     use std::time::SystemTime;
 
     fn buffer_line(buffer: &Buffer, y: u16) -> String {
@@ -560,11 +562,11 @@ mod tests {
         None
     }
 
-    fn app_with_config(config: Config) -> App {
+    fn app_with_theme(theme: Theme) -> App {
         let mut app = App::new(
             PathBuf::from("/definitely-not-a-real-claude-dir"),
             PathBuf::from("/tmp/ccmgr"),
-            Arc::new(config),
+            theme,
         );
         app.sessions = vec![Session {
             id: "session-id".to_string(),
@@ -580,13 +582,13 @@ mod tests {
     }
 
     fn app_with_session() -> App {
-        app_with_config(Config::default())
+        app_with_theme(Theme::default())
     }
 
     #[test]
     fn draw_matches_resume_session_layout_and_theme() {
         let mut app = app_with_session();
-        let theme = app.config.theme.clone();
+        let theme = app.theme;
         let backend = TestBackend::new(80, 24);
         let mut terminal = Terminal::new(backend).expect("terminal should initialize");
 
@@ -595,7 +597,6 @@ mod tests {
             .expect("drawing should succeed");
 
         let buffer = terminal.backend().buffer();
-        assert_eq!(buffer.cell((0, 0)).unwrap().bg, theme.background);
 
         // Row 1 (after the 1-row top margin) is the rule.
         assert_eq!(buffer.cell((2, 1)).unwrap().symbol(), "─");
@@ -717,16 +718,56 @@ mod tests {
     }
 
     #[test]
+    fn the_terminals_own_background_shows_through_by_default() {
+        for theme in [Theme::dark(), Theme::light()] {
+            let mut app = app_with_theme(theme);
+            app.mode = Mode::Previewing {
+                preview: SessionPreview {
+                    title: "Preview me".to_string(),
+                    messages: vec![crate::preview::PreviewMessage {
+                        role: PreviewRole::Assistant,
+                        text: "On whatever background the terminal has".to_string(),
+                    }],
+                    total_messages: 1,
+                    history_incomplete: false,
+                    scroll_from_bottom: 0,
+                    cache: None,
+                },
+            };
+
+            for pass in 0..2 {
+                let backend = TestBackend::new(80, 24);
+                let mut terminal = Terminal::new(backend).expect("terminal should initialize");
+                terminal.draw(|frame| draw(frame, &mut app)).unwrap();
+
+                let buffer = terminal.backend().buffer();
+                for y in 0..24 {
+                    for x in 0..80 {
+                        assert_eq!(
+                            buffer.cell((x, y)).unwrap().bg,
+                            Color::Reset,
+                            "cell ({x}, {y}) should keep the terminal's background"
+                        );
+                    }
+                }
+                if pass == 0 {
+                    app.mode = Mode::Browsing;
+                }
+            }
+        }
+    }
+
+    #[test]
     fn every_theme_color_is_used_by_the_renderer() {
-        let mut config = Config::default();
-        config.theme.background = Color::Rgb(1, 2, 3);
-        config.theme.accent = Color::Rgb(4, 5, 6);
-        config.theme.text = Color::Rgb(7, 8, 9);
-        config.theme.border = Color::Rgb(10, 11, 12);
-        config.theme.title = Color::Rgb(13, 14, 15);
-        config.theme.danger = Color::Rgb(19, 20, 21);
-        let mut app = app_with_config(config);
-        let theme = app.config.theme.clone();
+        let mut app = app_with_theme(Theme {
+            background: Color::Rgb(1, 2, 3),
+            accent: Color::Rgb(4, 5, 6),
+            text: Color::Rgb(7, 8, 9),
+            border: Color::Rgb(10, 11, 12),
+            title: Color::Rgb(13, 14, 15),
+            danger: Color::Rgb(19, 20, 21),
+        });
+        let theme = app.theme;
         let backend = TestBackend::new(80, 24);
         let mut terminal = Terminal::new(backend).expect("terminal should initialize");
 
@@ -750,7 +791,7 @@ mod tests {
     #[test]
     fn preview_renders_roles_content_and_controls_without_a_search_cursor() {
         let mut app = app_with_session();
-        let theme = app.config.theme.clone();
+        let theme = app.theme;
         app.mode = Mode::Previewing {
             preview: SessionPreview {
                 title: "Preview me".to_string(),
@@ -866,7 +907,7 @@ mod tests {
                 cache: None,
             },
         };
-        let theme = app.config.theme.clone();
+        let theme = app.theme;
         let backend = TestBackend::new(80, 24);
         let mut terminal = Terminal::new(backend).expect("terminal should initialize");
 
