@@ -248,7 +248,7 @@ fn draw_list(f: &mut Frame, app: &App, area: Rect, theme: &Theme) {
                     parts.push(cwd.clone());
                 }
             }
-            let details = parts.join("  ·  ");
+            let details = parts.join(" · ");
 
             ListItem::new(vec![
                 Line::from(title),
@@ -275,13 +275,13 @@ fn draw_bottom(f: &mut Frame, app: &App, area: Rect, theme: &Theme) {
             theme.danger,
         ),
         Mode::Renaming { .. } => (
-            "Enter to save  ·  Esc to cancel".to_string(),
+            "Enter to save · Esc to cancel".to_string(),
             theme.text,
         ),
         Mode::Browsing => match &app.status {
             Some(status) => (status.clone(), theme.text),
             None => (
-                "Type to search  ·  ↑/↓ move  ·  Space preview  ·  Enter resume  ·  Ctrl+R rename  ·  Ctrl+D delete  ·  Tab scope  ·  Ctrl+C quit"
+                "Type to search · ↑/↓ move · Space preview · Enter resume · Ctrl+R rename · Ctrl+D delete · Tab scope · Ctrl+C quit"
                     .to_string(),
                 theme.text,
             ),
@@ -489,7 +489,7 @@ fn draw_preview_bottom(f: &mut Frame, status: Option<&str>, area: Rect, theme: &
     let (text, color) = match status {
         Some(status) => (status, theme.danger),
         None => (
-            "Esc close  ·  Enter resume  ·  ↑/↓ scroll  ·  PgUp/PgDn page",
+            "Esc close · Enter resume · ↑/↓ scroll · PgUp/PgDn page",
             theme.text,
         ),
     };
@@ -754,6 +754,31 @@ mod tests {
                     app.mode = Mode::Browsing;
                 }
             }
+        }
+    }
+
+    #[test]
+    fn dot_separators_use_a_single_space_on_each_side() {
+        let mut app = app_with_session();
+        app.scope = Scope::AllProjects;
+        let backend = TestBackend::new(120, 24);
+        let mut terminal = Terminal::new(backend).expect("terminal should initialize");
+        terminal
+            .draw(|frame| draw(frame, &mut app))
+            .expect("draw should succeed");
+
+        let buffer = terminal.backend().buffer();
+        let details = buffer_line(buffer, 10);
+        assert!(
+            details.contains(" · main · "),
+            "session details should be single-spaced around each dot: {details:?}"
+        );
+        for y in 0..24 {
+            let line = buffer_line(buffer, y);
+            assert!(
+                !line.contains("  ·  "),
+                "row {y} still uses double-spaced separators: {line:?}"
+            );
         }
     }
 
