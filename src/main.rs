@@ -101,6 +101,7 @@ KEYS (inside the TUI):
     Space          Preview the selected session
     Enter          Resume the selected session
     Ctrl+R         Rename the selected session
+    Ctrl+O         Move the selected session to another folder
     Ctrl+D         Delete the selected session (asks for confirmation)
     Tab            Toggle between current project and all projects
     Esc            Close the session preview

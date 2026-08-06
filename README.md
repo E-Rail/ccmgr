@@ -49,6 +49,7 @@ ccmgr uninstall     Remove the installed ccmgr binary
 | `Space` | Preview the selected session |
 | `Enter` | Resume the selected session (`claude --resume <id>`) |
 | `Ctrl+R` | Rename the selected session |
+| `Ctrl+O` | Move the selected session to another folder |
 | `Ctrl+D` | Delete the selected session (asks for confirmation) |
 | `Tab` | Toggle between the current project and all projects |
 | `Esc` | Close the session preview |
@@ -56,6 +57,19 @@ ccmgr uninstall     Remove the installed ccmgr binary
 
 Inside a preview, use `↑` / `↓` or `PageUp` / `PageDown` to scroll,
 `Enter` to resume, and `Esc` to return to the session list.
+
+### Moving a session
+
+`Ctrl+O` re-files a session under a different folder. The prompt starts at the
+folder the session is in now, `~` is expanded, and a relative path is taken
+from where you ran `ccmgr`. The folder has to already exist — nothing is
+touched until it checks out.
+
+Moving rewrites every reference to the old folder inside the session, so the
+transcript's paths still point at real files afterwards. Paths that merely
+start with the same name are left alone: moving `~/work/app` never disturbs a
+mention of `~/work/app-2`. The rewritten session is put fully in place before
+the original is removed, so an interrupted move leaves it where it was.
 
 ## Configuration
 

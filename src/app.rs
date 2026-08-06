@@ -3,7 +3,8 @@ use crate::config::Theme;
 use crate::preview::SessionPreview;
 use crate::session::{self, Scope, Session};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-use std::path::PathBuf;
+use std::fs;
+use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 const STATUS_TIMEOUT: Duration = Duration::from_secs(3);
@@ -11,6 +12,7 @@ const STATUS_TIMEOUT: Duration = Duration::from_secs(3);
 pub enum Mode {
     Browsing,
     Renaming { input: String },
+    Moving { input: String },
     ConfirmingDelete,
     Previewing { preview: SessionPreview },
 }
@@ -130,6 +132,7 @@ impl App {
         match self.mode {
             Mode::Browsing => self.handle_browsing_key(key),
             Mode::Renaming { .. } => self.handle_renaming_key(key),
+            Mode::Moving { .. } => self.handle_moving_key(key),
             Mode::ConfirmingDelete => self.handle_confirm_delete_key(key),
             Mode::Previewing { .. } => self.handle_preview_key(key),
         }
@@ -166,6 +169,19 @@ impl App {
                     self.mode = Mode::Renaming {
                         input: session.title.clone(),
                     };
+                }
+            }
+            KeyCode::Char('o') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                // Start from where the session lives now, so moving it
+                // somewhere nearby is a matter of editing the tail.
+                let start = self.selected_session().map(|session| {
+                    session
+                        .cwd
+                        .clone()
+                        .unwrap_or_else(|| self.current_dir.display().to_string())
+                });
+                if let Some(input) = start {
+                    self.mode = Mode::Moving { input };
                 }
             }
             KeyCode::Char('d') if key.modifiers.contains(KeyModifiers::CONTROL) => {
@@ -305,6 +321,77 @@ impl App {
         }
     }
 
+    fn handle_moving_key(&mut self, key: KeyEvent) {
+        let mut input = match &self.mode {
+            Mode::Moving { input } => input.clone(),
+            _ => return,
+        };
+        match key.code {
+            KeyCode::Esc => {
+                self.mode = Mode::Browsing;
+                return;
+            }
+            KeyCode::Backspace => {
+                input.pop();
+            }
+            KeyCode::Enter => {
+                self.commit_move(input);
+                return;
+            }
+            KeyCode::Char(c) if !key.modifiers.contains(KeyModifiers::CONTROL) => {
+                input.push(c);
+            }
+            _ => {}
+        }
+        self.mode = Mode::Moving { input };
+    }
+
+    fn commit_move(&mut self, folder: String) {
+        self.mode = Mode::Browsing;
+        let Some(&idx) = self.filtered.get(self.selected) else {
+            return;
+        };
+
+        let destination = match resolve_folder(&folder, &self.current_dir) {
+            Ok(destination) => destination,
+            Err(reason) => {
+                self.set_status(reason);
+                return;
+            }
+        };
+
+        let session = self.sessions[idx].clone();
+        if session.path.parent()
+            == Some(session::project_dir(&self.claude_dir, &destination).as_path())
+        {
+            self.set_status("That session is already in that folder.");
+            return;
+        }
+
+        match actions::move_session(
+            &session.path,
+            session.cwd.as_deref(),
+            &destination,
+            &self.claude_dir,
+        ) {
+            Ok(moved) => {
+                self.sessions[idx].path = moved.path;
+                self.sessions[idx].cwd = Some(destination.display().to_string());
+                let name = folder_name(&destination);
+                self.set_status(match moved.replacements {
+                    0 => format!("Moved to {name}."),
+                    1 => format!("Moved to {name} · 1 path updated."),
+                    n => format!("Moved to {name} · {n} paths updated."),
+                });
+                // The session may well have just left the list it was in.
+                self.reload();
+            }
+            Err(e) => {
+                self.set_status(format!("Move failed: {e}"));
+            }
+        }
+    }
+
     fn handle_confirm_delete_key(&mut self, key: KeyEvent) {
         match key.code {
             KeyCode::Char('y') | KeyCode::Char('Y') => {
@@ -334,6 +421,54 @@ impl App {
             }
         }
     }
+}
+
+/// Turn what was typed into a folder a session can actually be filed under,
+/// or explain why it isn't one. Claude Code keys session storage by absolute
+/// working directory, so the folder has to exist before anything is moved
+/// into it - canonicalizing both proves that and settles on the same spelling
+/// Claude Code itself would record.
+fn resolve_folder(input: &str, relative_to: &Path) -> Result<PathBuf, String> {
+    let trimmed = input.trim();
+    if trimmed.is_empty() {
+        return Err("Move failed: type the folder to move this session to".to_string());
+    }
+
+    let expanded = expand_home(trimmed);
+    let absolute = if expanded.is_absolute() {
+        expanded
+    } else {
+        relative_to.join(expanded)
+    };
+
+    let folder = fs::canonicalize(&absolute)
+        .map_err(|e| format!("Move failed: {}: {e}", absolute.display()))?;
+    if !folder.is_dir() {
+        return Err(format!("Move failed: not a folder: {}", folder.display()));
+    }
+    Ok(folder)
+}
+
+/// Expand a leading `~`, since that is how people write their own paths.
+/// `~someone-else` is left alone rather than guessed at.
+fn expand_home(path: &str) -> PathBuf {
+    let Some(rest) = path.strip_prefix('~') else {
+        return PathBuf::from(path);
+    };
+    if !(rest.is_empty() || rest.starts_with('/')) {
+        return PathBuf::from(path);
+    }
+    match std::env::var_os("HOME") {
+        Some(home) => PathBuf::from(home).join(rest.trim_start_matches('/')),
+        None => PathBuf::from(path),
+    }
+}
+
+fn folder_name(path: &Path) -> String {
+    path.file_name()
+        .and_then(|name| name.to_str())
+        .map(str::to_owned)
+        .unwrap_or_else(|| path.display().to_string())
 }
 
 #[cfg(test)]
@@ -425,6 +560,148 @@ mod tests {
             Some("session-id")
         );
         fs::remove_file(path).expect("preview fixture should be removed");
+    }
+
+    /// An app holding one real session on disk, plus a real folder to move it
+    /// to. Returns the temp root to clean up and the destination folder.
+    fn app_with_a_movable_session() -> (App, PathBuf, PathBuf) {
+        let sequence = NEXT_TEMP_PATH.fetch_add(1, Ordering::Relaxed);
+        let root = std::env::temp_dir().join(format!(
+            "ccmgr-app-move-test-{}-{sequence}",
+            std::process::id()
+        ));
+        let claude_dir = root.join("projects");
+        let old_cwd = root.join("work").join("app");
+        let new_cwd = root.join("work").join("archive");
+        fs::create_dir_all(&old_cwd).expect("old folder should be created");
+        fs::create_dir_all(&new_cwd).expect("new folder should be created");
+        // The temp dir is reached through a symlink on macOS, and the app
+        // canonicalizes what it is given, so start from the same spelling.
+        let old_cwd = fs::canonicalize(&old_cwd).expect("old folder should canonicalize");
+        let new_cwd = fs::canonicalize(&new_cwd).expect("new folder should canonicalize");
+
+        let project = session::project_dir(&claude_dir, &old_cwd);
+        fs::create_dir_all(&project).expect("project folder should be created");
+        fs::write(
+            project.join("session-id.jsonl"),
+            format!(
+                "{{\"type\":\"user\",\"cwd\":\"{0}\",\
+                   \"message\":{{\"content\":\"open {0}/src/main.rs\"}}}}\n",
+                old_cwd.display()
+            ),
+        )
+        .expect("session fixture should be written");
+
+        let app = App::new(claude_dir, old_cwd, Theme::default());
+        assert_eq!(app.sessions.len(), 1, "the fixture session should be found");
+        (app, root, new_cwd)
+    }
+
+    #[test]
+    fn ctrl_o_opens_the_move_prompt_at_the_sessions_current_folder() {
+        let (mut app, root, _) = app_with_a_movable_session();
+        let current = app.sessions[0].cwd.clone().expect("fixture records a cwd");
+
+        app.handle_key(KeyEvent::new(KeyCode::Char('o'), KeyModifiers::CONTROL));
+
+        let Mode::Moving { input } = &app.mode else {
+            panic!("Ctrl+O should open the move prompt");
+        };
+        assert_eq!(input, &current);
+
+        app.handle_key(key(KeyCode::Esc));
+        assert!(matches!(app.mode, Mode::Browsing));
+        fs::remove_dir_all(root).expect("fixture should be removed");
+    }
+
+    #[test]
+    fn moving_a_session_refiles_it_and_rewrites_the_old_folder() {
+        let (mut app, root, destination) = app_with_a_movable_session();
+        let origin = app.sessions[0].path.clone();
+
+        app.mode = Mode::Moving {
+            input: destination.display().to_string(),
+        };
+        app.handle_key(key(KeyCode::Enter));
+
+        assert!(matches!(app.mode, Mode::Browsing));
+        assert!(
+            app.status
+                .as_deref()
+                .is_some_and(|s| s.starts_with("Moved to archive")),
+            "status should confirm the move: {:?}",
+            app.status
+        );
+        assert!(
+            !origin.exists(),
+            "the session should have left its old folder"
+        );
+
+        let moved = session::project_dir(&app.claude_dir, &destination).join("session-id.jsonl");
+        let contents = fs::read_to_string(&moved).expect("moved session should be readable");
+        assert!(contents.contains(&format!("\"cwd\":\"{}\"", destination.display())));
+        assert!(contents.contains(&format!("open {}/src/main.rs", destination.display())));
+
+        // The list is scoped to the folder the session just left.
+        assert!(
+            app.sessions.is_empty(),
+            "a session moved elsewhere should leave the current project's list"
+        );
+        fs::remove_dir_all(root).expect("fixture should be removed");
+    }
+
+    #[test]
+    fn moving_to_a_folder_that_does_not_exist_explains_why_and_moves_nothing() {
+        let (mut app, root, _) = app_with_a_movable_session();
+        let origin = app.sessions[0].path.clone();
+
+        app.mode = Mode::Moving {
+            input: root.join("nowhere").display().to_string(),
+        };
+        app.handle_key(key(KeyCode::Enter));
+
+        assert!(matches!(app.mode, Mode::Browsing));
+        assert!(
+            app.status
+                .as_deref()
+                .is_some_and(|s| s.starts_with("Move failed:")),
+            "an invalid folder should be reported: {:?}",
+            app.status
+        );
+        assert!(origin.exists(), "the session should not have moved");
+        fs::remove_dir_all(root).expect("fixture should be removed");
+    }
+
+    #[test]
+    fn moving_a_session_to_the_folder_it_is_already_in_is_refused() {
+        let (mut app, root, _) = app_with_a_movable_session();
+        let origin = app.sessions[0].path.clone();
+        let current = app.sessions[0].cwd.clone().expect("fixture records a cwd");
+
+        app.mode = Mode::Moving { input: current };
+        app.handle_key(key(KeyCode::Enter));
+
+        assert_eq!(
+            app.status.as_deref(),
+            Some("That session is already in that folder.")
+        );
+        assert!(
+            origin.exists(),
+            "the session should be left exactly where it was"
+        );
+        fs::remove_dir_all(root).expect("fixture should be removed");
+    }
+
+    #[test]
+    fn a_typed_folder_is_resolved_against_the_current_directory() {
+        let (app, root, destination) = app_with_a_movable_session();
+
+        let resolved = resolve_folder("../archive", &app.current_dir)
+            .expect("a relative folder should resolve");
+
+        assert_eq!(resolved, destination);
+        assert!(resolve_folder("   ", &app.current_dir).is_err());
+        fs::remove_dir_all(root).expect("fixture should be removed");
     }
 
     #[test]

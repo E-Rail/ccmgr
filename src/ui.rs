@@ -138,7 +138,7 @@ fn draw_title(f: &mut Frame, area: Rect, theme: &Theme) {
 }
 
 fn draw_input_box(f: &mut Frame, app: &App, area: Rect, theme: &Theme) {
-    let border_color = if matches!(app.mode, Mode::Renaming { .. }) {
+    let border_color = if matches!(app.mode, Mode::Renaming { .. } | Mode::Moving { .. }) {
         theme.accent
     } else {
         theme.border
@@ -157,6 +157,7 @@ fn draw_input_box(f: &mut Frame, app: &App, area: Rect, theme: &Theme) {
 
     let (prefix, text, is_placeholder) = match &app.mode {
         Mode::Renaming { input } => ("Rename: ", input.as_str(), false),
+        Mode::Moving { input } => ("Move to: ", input.as_str(), false),
         _ if app.query.is_empty() => ("⌕ ", "Search...", true),
         _ => ("⌕ ", app.query.as_str(), false),
     };
@@ -278,10 +279,14 @@ fn draw_bottom(f: &mut Frame, app: &App, area: Rect, theme: &Theme) {
             "Enter to save · Esc to cancel".to_string(),
             theme.muted,
         ),
+        Mode::Moving { .. } => (
+            "Enter to move · Esc to cancel".to_string(),
+            theme.muted,
+        ),
         Mode::Browsing => match &app.status {
             Some(status) => (status.clone(), theme.muted),
             None => (
-                "Type to search · ↑/↓ move · Space preview · Enter resume · Ctrl+R rename · Ctrl+D delete · Tab scope · Ctrl+C quit"
+                "Type to search · ↑/↓ select · Space preview · Enter resume · Ctrl+R rename · Ctrl+O move · Ctrl+D delete · Tab scope · Ctrl+C quit"
                     .to_string(),
                 theme.muted,
             ),
@@ -669,6 +674,42 @@ mod tests {
         // position (row 7, past the indent) rather than by content.
         assert!(buffer_line(buffer, 7).contains("ccmgr"));
         assert_eq!(buffer.cell((4, 7)).unwrap().fg, theme.muted);
+    }
+
+    #[test]
+    fn the_move_prompt_takes_over_the_search_box_and_says_how_to_confirm() {
+        let mut app = app_with_session();
+        let theme = app.theme;
+        app.mode = Mode::Moving {
+            input: "/tmp/somewhere-else".to_string(),
+        };
+        let backend = TestBackend::new(80, 24);
+        let mut terminal = Terminal::new(backend).expect("terminal should initialize");
+
+        terminal
+            .draw(|frame| draw(frame, &mut app))
+            .expect("draw should succeed");
+        let buffer = terminal.backend().buffer();
+
+        assert!(text_position(buffer, "Move to: /tmp/somewhere-else").is_some());
+        assert!(text_position(buffer, "Search...").is_none());
+        assert!(text_position(buffer, "Enter to move · Esc to cancel").is_some());
+        // The box border picks up the accent while an edit is in flight, the
+        // same as it does for a rename.
+        assert_eq!(buffer.cell((2, 4)).unwrap().fg, theme.accent);
+    }
+
+    #[test]
+    fn the_hint_bar_advertises_the_move_key() {
+        let mut app = app_with_session();
+        let backend = TestBackend::new(160, 24);
+        let mut terminal = Terminal::new(backend).expect("terminal should initialize");
+
+        terminal
+            .draw(|frame| draw(frame, &mut app))
+            .expect("draw should succeed");
+
+        assert!(text_position(terminal.backend().buffer(), "Ctrl+O move").is_some());
     }
 
     #[test]

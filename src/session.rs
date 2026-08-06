@@ -38,13 +38,20 @@ pub fn encode_cwd(path: &Path) -> String {
     path.to_string_lossy().replace('/', "-")
 }
 
+/// The directory Claude Code files a project's sessions under. Storage is
+/// keyed by working directory, so this is also what a session has to be moved
+/// into for Claude Code to find it from somewhere else.
+pub fn project_dir(claude_dir: &Path, cwd: &Path) -> PathBuf {
+    claude_dir.join(encode_cwd(cwd))
+}
+
 pub fn claude_projects_dir() -> Option<PathBuf> {
     let home = std::env::var("HOME").ok()?;
     Some(PathBuf::from(home).join(".claude").join("projects"))
 }
 
 pub fn scan_current_project(claude_dir: &Path, current_dir: &Path) -> Vec<Session> {
-    let dir = claude_dir.join(encode_cwd(current_dir));
+    let dir = project_dir(claude_dir, current_dir);
     let mut sessions = scan_dir(&dir);
     sort_sessions(&mut sessions);
     sessions
