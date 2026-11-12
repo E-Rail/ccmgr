@@ -104,8 +104,7 @@ KEYS (inside the TUI):
     Ctrl+O         Move the selected session to another folder
     Ctrl+D         Delete the selected session (asks for confirmation)
     Tab            Toggle between current project and all projects
-    Esc            Close the session preview
-    Ctrl+C         Quit"
+    Esc            Quit (in a preview or prompt: back to the session list)"
     );
 }
 

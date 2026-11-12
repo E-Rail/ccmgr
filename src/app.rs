@@ -192,6 +192,11 @@ impl App {
             KeyCode::Enter => {
                 self.try_resume();
             }
+            // Only here, at the top level: in a preview or a prompt Esc backs
+            // out to this list instead, so it takes a second press to leave.
+            KeyCode::Esc => {
+                self.should_quit = true;
+            }
             KeyCode::Char(c) if !key.modifiers.contains(KeyModifiers::CONTROL) => {
                 self.query.push(c);
                 self.recompute_filter();
@@ -543,7 +548,56 @@ mod tests {
 
         app.handle_key(key(KeyCode::Esc));
         assert!(matches!(app.mode, Mode::Browsing));
+        assert!(!app.should_quit, "Esc should only close the preview");
 
+        fs::remove_file(path).expect("preview fixture should be removed");
+    }
+
+    #[test]
+    fn escape_quits_from_the_session_list_without_resuming() {
+        let (mut app, path) = previewable_app();
+
+        app.handle_key(key(KeyCode::Esc));
+
+        assert!(app.should_quit);
+        assert!(app.resume_target.is_none());
+        fs::remove_file(path).expect("preview fixture should be removed");
+    }
+
+    #[test]
+    fn escape_backs_out_of_a_prompt_before_it_quits() {
+        let (mut app, path) = previewable_app();
+
+        for open_prompt in [KeyCode::Char('r'), KeyCode::Char('o'), KeyCode::Char('d')] {
+            app.handle_key(KeyEvent::new(open_prompt, KeyModifiers::CONTROL));
+            assert!(
+                !matches!(app.mode, Mode::Browsing),
+                "Ctrl+{open_prompt} should open a prompt"
+            );
+
+            app.handle_key(key(KeyCode::Esc));
+            assert!(matches!(app.mode, Mode::Browsing));
+            assert!(
+                !app.should_quit,
+                "Esc should cancel the Ctrl+{open_prompt} prompt, not quit"
+            );
+        }
+
+        app.handle_key(key(KeyCode::Esc));
+        assert!(app.should_quit);
+        fs::remove_file(path).expect("preview fixture should be removed");
+    }
+
+    #[test]
+    fn ctrl_c_quits_from_anywhere() {
+        let (mut app, path) = previewable_app();
+        app.handle_key(key(KeyCode::Char(' ')));
+        assert!(matches!(app.mode, Mode::Previewing { .. }));
+
+        app.handle_key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL));
+
+        assert!(app.should_quit);
+        assert!(app.resume_target.is_none());
         fs::remove_file(path).expect("preview fixture should be removed");
     }
 

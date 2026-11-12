@@ -286,7 +286,7 @@ fn draw_bottom(f: &mut Frame, app: &App, area: Rect, theme: &Theme) {
         Mode::Browsing => match &app.status {
             Some(status) => (status.clone(), theme.muted),
             None => (
-                "Type to search · ↑/↓ select · Space preview · Enter resume · Ctrl+R rename · Ctrl+O move · Ctrl+D delete · Tab scope · Ctrl+C quit"
+                "Type to search · ↑/↓ select · Space preview · Enter resume · Ctrl+R rename · Ctrl+O move · Ctrl+D delete · Tab scope · Esc quit"
                     .to_string(),
                 theme.muted,
             ),
@@ -710,6 +710,22 @@ mod tests {
             .expect("draw should succeed");
 
         assert!(text_position(terminal.backend().buffer(), "Ctrl+O move").is_some());
+    }
+
+    #[test]
+    fn the_hint_bar_offers_esc_to_quit_and_leaves_ctrl_c_unsaid() {
+        let mut app = app_with_session();
+        let backend = TestBackend::new(160, 24);
+        let mut terminal = Terminal::new(backend).expect("terminal should initialize");
+
+        terminal
+            .draw(|frame| draw(frame, &mut app))
+            .expect("draw should succeed");
+        let buffer = terminal.backend().buffer();
+
+        assert!(text_position(buffer, "Esc quit").is_some());
+        // Ctrl+C still quits; it just doesn't need advertising.
+        assert!(text_position(buffer, "Ctrl+C").is_none());
     }
 
     #[test]

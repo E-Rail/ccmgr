@@ -52,8 +52,7 @@ ccmgr uninstall     Remove the installed ccmgr binary
 | `Ctrl+O` | Move the selected session to another folder |
 | `Ctrl+D` | Delete the selected session (asks for confirmation) |
 | `Tab` | Toggle between the current project and all projects |
-| `Esc` | Close the session preview |
-| `Ctrl+C` | Quit |
+| `Esc` | Quit (in a preview or prompt: back to the session list) |
 
 Inside a preview, use `↑` / `↓` or `PageUp` / `PageDown` to scroll,
 `Enter` to resume, and `Esc` to return to the session list.
